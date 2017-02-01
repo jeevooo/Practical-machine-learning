@@ -1,0 +1,137 @@
+---
+title: "PML-JeevKiriella"
+author: "Jeev Kiriella"
+date: '2017-01-31'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+###COURSERA PRACTICAL MACHINE LEARNING ASSIGNMENT
+### JEEV KIRIELLA
+
+##EXECUTIVE SUMMARY
+## HERE I RUN THROUGH A PROCESS TO PREDICT THE TYPE OF MOVEMENT PERFORMED BY SEVERAL PARTICIPANTS WITH ACCELEROMETER AND GYROSCOPE DATA
+## THE MOVEMENTS ARE SEVERAL VAIRATIONS OF A BICEP CURL. 
+## THE SEVERAL MODEL ATTEMPS WERE USED TO CLASSIFY THE QUALITY OF THE MOVEMENT SUCH AS LDA, DECISION TREE AND RANDOM FORREST
+## RANDOM FORREST APPEARED TO PRODUCE THE BEST ACCURCY UP TO 99%
+
+library(caret); library(randomForest); library(MASS); library (rpart)
+## CLEAR CURRENT ENVRIONMENT.
+
+rm(list = ls())
+
+## IMPORT TRAINING AND TEST SETS DIRECTLY FROM URL PROVIDED.
+## SET SEED FOR REPRODUCIBLE RESULTS.
+
+set.seed(10000)
+TrainDataUrl = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TestDataUrl = "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+## CREATE OBJECTS USING DATA  WITHOUT "NA" OR "" VALUES.
+
+## NOTE REFERENCE FRAME OF DEVICE IS RIGHT HANDED (XYZ).
+TrainingData = read.csv(url(TrainDataUrl), na.strings=c("NA",""))
+TestingData = read.csv(url(TestDataUrl), na.strings=c("NA",""))
+
+## CREATE A TESTING SET AND TRAINING SET BASED ON THE "CLASSE" VARIABLE FROM TRAINING DATA. 
+## PARTITION PERCENTAGE SET TO 70%.
+## CHECK DIMESNIONS LINE UP WITH SUGGESTED PARTITION.
+
+inTrain = createDataPartition(y = TrainingData$classe, p = 0.70, list = FALSE)
+TrainingSet = TrainingData[inTrain,]
+TestingSet = TrainingData[-inTrain,]
+dimTrainingData = dim(TrainingData)
+dimTrainingSet = dim(TrainingSet)
+dimTestingSet = dim(TestingSet)
+TrainingSetPercentage = (dimTrainingSet/dimTrainingData)*100
+TestingSetPercentage = (dimTestingSet/dimTrainingData)*100
+print(TrainingSetPercentage); print(TestingSetPercentage)
+
+## FIND COLUMNS OF DATA WITH NA FOR PREDICTION MODEL USING nearzerovariance().
+## SAVE VAIRABLES THAT ARE ZERO AND NON-ZERO AS VARIABLES.
+
+TrainingNZV = nearZeroVar(TrainingSet, freqCut = 100/5, uniqueCut = 10, saveMetrics=TRUE)
+str(TrainingNZV, vec.len=2) # check the NZV data
+ZV = TrainingNZV[TrainingNZV[,"zeroVar"] > 0, ] # check the zero variance predictors
+NZV = TrainingNZV[TrainingNZV[,"zeroVar"] + TrainingNZV[,"nzv"] > 0, ] # check the near zero variance predictors
+TrainingColNZV = dimnames(NZV)
+ColNZV = names(TrainingSet) %in% c(TrainingColNZV[[1]])
+TrainingSetNZV = TrainingSet[!ColNZV]
+dim(TrainingSet); dim(TrainingSetNZV)
+
+## REMOVE COLUMNS WITH "NA".
+
+TrainingSetNZV = TrainingSetNZV[ , colSums(is.na(TrainingSetNZV)) == 0]
+
+## REMOVE SAMPLE NUMBER COLUMN.
+
+TrainingSetNZV = TrainingSetNZV[c(-1)]
+
+## WORKING WITH SAME ROW and COLUMNS FOR TestingSet AND TestingData.
+
+TestingSetNZV = TestingSet[colnames(TrainingSetNZV)] ## keep classe variable for model.
+TestingDataNZV = TestingData[colnames(TrainingSetNZV[,-58])]
+dim(TestingSetNZV);dim (TestingDataNZV)
+
+TestingDataNZV = rbind(TrainingSetNZV[2, -58], TestingDataNZV) 
+TestingDataNZV = TestingDataNZV[-1,]
+
+
+## EXPLORTING PREDICTOR DATA.
+## CORRELATION BETWEEN PREDICTOR VALUES.
+Summary (TrainingSetNZV)
+plot(TrainingSetNZV[,6:57])
+
+TrainingSetNZV_Corr = TrainingSetNZV[,-(1:5)]
+TrainingSetNZV_Corr = abs(cor(TrainingSetNZV_Corr[,-53]))
+diag(TrainingSetNZV_Corr) = 0
+which(TrainingSetNZV_Corr > 0.80, arr.ind = T)
+corrplot(TrainingSetNZV_Corr, order = "FPC", method = "color", type = "lower", tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+
+
+## PCA TO CHECK IF WE CAN REDUCE THE DIMENSIONALITY OF DATA. 
+
+PC_TrainingSetNZV = princomp(TrainingSetNZV[,(5:57)])
+plot(PC_TrainingSetNZV)
+plot(PC_TrainingSetNZV, type = 'l')
+summary (PC_TrainingSetNZV)
+
+
+## MODEL PREDICTIONS 
+## A) LINEAR DISCRIMINANT ANALYSIS
+
+set.seed(10000)
+modFitlda = train(classe ~ ., data = TrainingSetNZV [,-(1:5)], method = "lda")
+predictionlda = predict(modFitlda, TestingSetNZV)
+confmat_lda = confusionMatrix(predictionlda, TestingSetNZV$classe)
+
+
+## B) DECISION TREE
+
+set.seed(10000)
+modFitDT = rpart(classe ~ ., data = TrainingSetNZV[,-(1:5)], method = "class")
+predictionDT = predict(modFitDT, TestingSetNZV, type = "class")
+confmat_DT = confusionMatrix(predictionDT, TestingSetNZV$classe)
+
+plot(modFitDT, uniform = TRUE, main = "Classification Tree")
+text(modFitDT, use.n = TRUE, all = TRUE, cex = 0.8)
+
+## C) RANDOM FORREST
+
+set.seed(10000)
+modFitRF = randomForest(classe ~ ., data = TrainingSetNZV[,-(1:5)], method = "class")
+predictionRF = predict(modFitRF, TestingSetNZV, type = "class")
+confmat_RF = confusionMatrix(predictionRF, TestingSetNZV$classe)
+
+## RANDOM FORREST RESULTS PRODUCED HIGHEST ACCURACY (0.9952). 
+
+## TEST OUT OF SAMPLE ERROR OF RANDOM FORREST RESULTS (1-ACCURACY).
+
+OSE = 1 - 0.9952
+OSE
+
+## TESTING BEST MODEL ON TEST DATA
+predictionFINAL = predict(modFitRF, newdata = TestingDataNZV)
